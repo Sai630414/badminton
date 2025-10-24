@@ -3,101 +3,192 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Inter-Hostel Badminton Fixtures (Live)</title>
+<title>🏸 Inter-Hostel Badminton Fixtures (Live)</title>
+
+<!-- ========== Firebase Setup ========== -->
 <script type="module">
-/* ----------  Firebase imports  ---------- */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
 import {
   getFirestore, doc, getDoc, setDoc, onSnapshot
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
-/* ----------  Replace this with YOUR CONFIG  ---------- */
+/* --- Replace this with your Firebase Config --- */
 const firebaseConfig = {
+  apiKey: "AIzaSyAYEBi37iNUdsTzoAmuh47phNJkjD0245w",
+  authDomain: "badminton-fixtures-5610f.firebaseapp.com",
+  projectId: "badminton-fixtures-5610f",
+  storageBucket: "badminton-fixtures-5610f.firebasestorage.app",
+  messagingSenderId: "296007773773",
+  appId: "1:296007773773:web:f59d1804da15464f587604",
+  measurementId: "G-7T6Q002VRS"
+};
 
-    apiKey: "AIzaSyAYEBi37iNUdsTzoAmuh47phNJkjD0245w",
-
-    authDomain: "badminton-fixtures-5610f.firebaseapp.com",
-
-    projectId: "badminton-fixtures-5610f",
-
-    storageBucket: "badminton-fixtures-5610f.firebasestorage.app",
-
-    messagingSenderId: "296007773773",
-
-    appId: "1:296007773773:web:f59d1804da15464f587604",
-
-    measurementId: "G-7T6Q002VRS"
-
-  };
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
+const docRef = doc(db,"fixtures","main");
 
-/* ----------  Page elements  ---------- */
+/* --- DOM elements --- */
 const bracketEl = document.getElementById("bracket");
 const teamsEl   = document.getElementById("teams");
 const pwEl      = document.getElementById("pw");
 const adminBox  = document.getElementById("adminBox");
 
-let admin=false;
-const docRef = doc(db,"fixtures","main");
+let admin = false;
 
-/* ----------  Listen live from Firestore  ---------- */
-onSnapshot(docRef,(snap)=>{
-  if(!snap.exists()){ bracketEl.innerHTML="<p>No fixture yet</p>"; return; }
-  const data=snap.data();
+/* --- Listen for Live Changes --- */
+onSnapshot(docRef, (snap)=>{
+  if(!snap.exists()){ 
+    bracketEl.innerHTML = "<p>No fixtures yet. (Admin: add teams to generate)</p>"; 
+    return;
+  }
+  const data = snap.data();
   renderBracket(data);
 });
 
-/* ----------  Generate bracket  ---------- */
-async function generate(){
+/* --- Admin Login --- */
+window.login = () => {
+  const pass = pwEl.value.trim();
+  if(pass === "admin123"){
+    admin = true;
+    adminBox.style.display = 'block';
+    alert("✅ Admin logged in");
+  } else alert("❌ Wrong password");
+};
+
+/* --- Generate Fixtures --- */
+window.generate = async () => {
   if(!admin) return alert("Admin only");
-  const lines=teamsEl.value.trim().split("\\n").filter(x=>x);
-  if(lines.length<2) return alert("Need 2+ teams");
-  const matches=[];
-  for(let i=0;i<lines.length;i+=2){
-    matches.push({a:lines[i],b:lines[i+1]||'BYE',winner:null});
+  const teams = teamsEl.value.trim().split("\n").filter(x=>x);
+  if(teams.length < 2) return alert("Need at least 2 teams");
+
+  // Make number of teams a power of 2
+  const nextPow = 2 ** Math.ceil(Math.log2(teams.length));
+  while(teams.length < nextPow) teams.push("BYE");
+
+  const rounds = [];
+  let currentRound = [];
+  for(let i=0; i<teams.length; i+=2){
+    currentRound.push({ a:teams[i], b:teams[i+1], winner:null });
   }
-  await setDoc(docRef,{teams:lines,matches});
-}
+  rounds.push(currentRound);
 
-/* ----------  Set winner  ---------- */
-async function setWinner(idx,w){
-  if(!admin) return;
-  const snap=await getDoc(docRef);
-  const data=snap.data();
-  data.matches[idx].winner=w;
-  await setDoc(docRef,data);
-}
+  const data = { teams, rounds };
+  await setDoc(docRef, data);
+};
 
-/* ----------  Render function  ---------- */
+/* --- Render the Bracket --- */
 function renderBracket(data){
-  bracketEl.innerHTML="";
-  data.matches.forEach((m,i)=>{
-    const div=document.createElement("div");
-    div.className="match";
-    div.innerHTML=`<strong>${m.a}</strong> vs <strong>${m.b}</strong> 
-      <span>${m.winner? '🏆 '+m.winner : ''}</span>`;
-    if(admin){
-      div.onclick=()=>setWinner(i,prompt(`Winner? A or B\\nA:${m.a}\\nB:${m.b}`)==='A'?m.a:m.b);
-    }
-    bracketEl.appendChild(div);
+  bracketEl.innerHTML = "";
+
+  data.rounds.forEach((round, roundIndex)=>{
+    const roundDiv = document.createElement("div");
+    roundDiv.className = "round";
+
+    const title = document.createElement("h3");
+    title.textContent = `Round ${roundIndex+1}`;
+    roundDiv.appendChild(title);
+
+    round.forEach((m, matchIndex)=>{
+      const matchDiv = document.createElement("div");
+      matchDiv.className = "match";
+      matchDiv.innerHTML = `
+        <strong>${m.a}</strong> vs <strong>${m.b}</strong><br>
+        ${m.winner ? `🏆 Winner: <b>${m.winner}</b>` : ''}
+      `;
+
+      if(admin && !m.winner && m.a !== "BYE" && m.b !== "BYE"){
+        matchDiv.onclick = async ()=>{
+          const choice = prompt(`Enter winner:\nA) ${m.a}\nB) ${m.b}`);
+          if(!choice) return;
+          const winner = (choice.toUpperCase() === 'A') ? m.a : (choice.toUpperCase() === 'B' ? m.b : null);
+          if(!winner) return alert("Invalid choice");
+          await updateWinner(roundIndex, matchIndex, winner);
+        };
+      }
+
+      roundDiv.appendChild(matchDiv);
+    });
+
+    bracketEl.appendChild(roundDiv);
   });
 }
 
-/* ----------  Admin login ---------- */
-window.login=()=>{
-  const pass=pwEl.value.trim();
-  if(pass==="admin123"){ admin=true; adminBox.style.display='block'; alert("Logged in"); }
-  else alert("Wrong password");
-};
-window.generate=generate;
+/* --- Update Winner Logic --- */
+async function updateWinner(roundIndex, matchIndex, winner){
+  const snap = await getDoc(docRef);
+  const data = snap.data();
+  data.rounds[roundIndex][matchIndex].winner = winner;
+
+  // Move winner to next round
+  const nextRoundIndex = roundIndex + 1;
+  if(!data.rounds[nextRoundIndex]) data.rounds[nextRoundIndex] = [];
+
+  const targetMatch = Math.floor(matchIndex / 2);
+  if(!data.rounds[nextRoundIndex][targetMatch]){
+    data.rounds[nextRoundIndex][targetMatch] = { a:null, b:null, winner:null };
+  }
+  if(matchIndex % 2 === 0)
+    data.rounds[nextRoundIndex][targetMatch].a = winner;
+  else
+    data.rounds[nextRoundIndex][targetMatch].b = winner;
+
+  await setDoc(docRef, data);
+}
 </script>
 
+<!-- ========== Styles ========== -->
 <style>
-body{font-family:sans-serif;background:#f7f9fc;margin:20px;}
-.match{background:#fff;padding:10px;margin:6px 0;border-radius:6px;box-shadow:0 1px 3px #ccc;cursor:pointer;}
-textarea{width:100%;min-height:120px;}
-button{padding:8px 12px;margin:4px;}
+body {
+  font-family: "Segoe UI", sans-serif;
+  background: #f7f9fc;
+  margin: 20px;
+  color: #222;
+}
+h2 { text-align: center; }
+h3 { margin-top: 20px; color: #004aad; }
+.round {
+  background: #ffffff;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px #d0d0d0;
+  margin-bottom: 15px;
+}
+.match {
+  background: #f1f6ff;
+  padding: 8px;
+  border-radius: 6px;
+  margin: 5px 0;
+  cursor: pointer;
+  transition: 0.3s;
+}
+.match:hover {
+  background: #ddecff;
+}
+textarea {
+  width: 100%;
+  min-height: 120px;
+  border-radius: 6px;
+  padding: 8px;
+}
+button {
+  padding: 8px 12px;
+  margin: 6px 4px;
+  border: none;
+  border-radius: 6px;
+  background: #004aad;
+  color: #fff;
+  cursor: pointer;
+  transition: 0.3s;
+}
+button:hover { background: #0066ff; }
+#adminBox {
+  display: none;
+  margin-top: 20px;
+  background: #fff;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px #ccc;
+}
 </style>
 </head>
 
@@ -111,7 +202,7 @@ button{padding:8px 12px;margin:4px;}
   <button onclick="login()">Login</button>
 </div>
 
-<div id="adminBox" style="display:none">
+<div id="adminBox">
   <h3>Admin Panel</h3>
   <textarea id="teams" placeholder="Enter team names (one per line)"></textarea><br>
   <button onclick="generate()">Generate Fixtures</button>
