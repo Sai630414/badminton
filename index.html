@@ -5,12 +5,79 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>🏸 Inter-Hostel Badminton Fixtures (Live)</title>
 
-<script type="module">
-/* ----------------- Firebase setup ----------------- */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
+<style>
+  body {
+    font-family: "Poppins", sans-serif;
+    background: #f4f7fb;
+    color: #222;
+    margin: 20px;
+  }
+  h2 { text-align: center; }
+  .match {
+    background: white;
+    border-radius: 10px;
+    padding: 12px;
+    margin: 10px 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  .match span {
+    float: right;
+    font-weight: bold;
+    color: green;
+  }
+  textarea { width: 100%; min-height: 120px; border-radius: 6px; padding: 8px; }
+  input, select, button {
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    margin: 4px;
+  }
+  button {
+    cursor: pointer;
+    background-color: #007bff;
+    color: white;
+    border: none;
+  }
+  button:hover {
+    background-color: #0056b3;
+  }
+  #adminBox {
+    background: #e9f1ff;
+    padding: 12px;
+    border-radius: 8px;
+    margin-top: 10px;
+  }
+</style>
+</head>
 
-/* --- Your Firebase config --- */
+<body>
+<h2>🏸 Inter-Hostel Badminton Fixtures (Live)</h2>
+
+<div id="bracket">Loading fixtures…</div>
+
+<hr>
+<div id="adminLogin">
+  <input id="pw" type="password" placeholder="Admin password">
+  <button onclick="login()">Login</button>
+</div>
+
+<div id="adminBox" style="display:none">
+  <h3>Admin Panel</h3>
+  <textarea id="teams" placeholder="Enter team names (one per line)"></textarea><br>
+  <label>Start Time: <input id="startTime" type="time"></label>
+  <label>Court Count: <input id="courtCount" type="number" value="2" min="1"></label>
+  <br>
+  <button onclick="generate()">Generate Fixtures</button>
+</div>
+
+<script type="module">
+/* ---------- Firebase Setup ---------- */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+import {
+  getFirestore, doc, getDoc, setDoc, onSnapshot
+} from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+/* ---------- Your Firebase Config ---------- */
 const firebaseConfig = {
   apiKey: "AIzaSyAYEBi37iNUdsTzoAmuh47phNJkjD0245w",
   authDomain: "badminton-fixtures-5610f.firebaseapp.com",
@@ -20,175 +87,113 @@ const firebaseConfig = {
   appId: "1:296007773773:web:f59d1804da15464f587604",
   measurementId: "G-7T6Q002VRS"
 };
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const docRef = doc(db, "fixtures", "main");
 
-/* ----------------- Page elements ----------------- */
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+
+/* ---------- Page Elements ---------- */
 const bracketEl = document.getElementById("bracket");
 const teamsEl   = document.getElementById("teams");
 const pwEl      = document.getElementById("pw");
 const adminBox  = document.getElementById("adminBox");
-const startEl   = document.getElementById("startTime");
-const courtEl   = document.getElementById("courtCount");
+const startTimeEl = document.getElementById("startTime");
+const courtCountEl = document.getElementById("courtCount");
 
-let admin = false;
+let admin=false;
+const docRef = doc(db,"fixtures","main");
 
-/* ----------------- Firestore live listener ----------------- */
-onSnapshot(docRef, (snap)=>{
-  if(!snap.exists()){
-    bracketEl.innerHTML = "<p>No fixtures yet (Admin: add teams to generate).</p>";
-    return;
+/* ---------- Live Listener ---------- */
+onSnapshot(docRef,(snap)=>{
+  if(!snap.exists()){ 
+    bracketEl.innerHTML="<p>No fixture yet</p>"; 
+    return; 
   }
   renderBracket(snap.data());
 });
 
-/* ----------------- Admin login ----------------- */
-window.login = () => {
-  const pass = pwEl.value.trim();
-  if(pass === "admin123"){
-    admin = true;
-    adminBox.style.display = "block";
-    alert("✅ Logged in as admin");
-  } else alert("❌ Wrong password");
-};
-
-/* ----------------- Generate Fixtures ----------------- */
-window.generate = async () => {
+/* ---------- Generate Fixtures ---------- */
+async function generate(){
   if(!admin) return alert("Admin only");
-  const teams = teamsEl.value.trim().split("\n").filter(x=>x);
-  if(teams.length < 2) return alert("Need at least 2 teams");
+  
+  const lines = teamsEl.value.trim().split("\n").filter(x=>x);
+  if(lines.length<2) return alert("Need 2 or more teams");
 
-  const courtCount = parseInt(courtEl.value);
-  const startTime = startEl.value;
-  if(!startTime) return alert("Enter start time");
+  const startTime = startTimeEl.value || "09:00";
+  const courtCount = parseInt(courtCountEl.value) || 1;
 
-  // make number of teams a power of 2
-  const nextPow = 2 ** Math.ceil(Math.log2(teams.length));
-  while(teams.length < nextPow) teams.push("BYE");
+  const matches=[];
+  let currentTime = new Date(`2025-01-01T${startTime}:00`);
+  let court=1;
 
-  const rounds = [];
-  const firstRound = [];
-  for(let i=0; i<teams.length; i+=2){
-    firstRound.push({ a: teams[i], b: teams[i+1], winner:null, court:null, time:null });
-  }
-  rounds.push(firstRound);
+  for(let i=0;i<lines.length;i+=2){
+    const teamA=lines[i];
+    const teamB=lines[i+1]||"BYE";
+    const timeStr = currentTime.toTimeString().slice(0,5);
 
-  // Schedule matches
-  const scheduled = scheduleMatches(firstRound, startTime, courtCount);
-  scheduled.forEach((m,i)=>{ rounds[0][i].time=m.time; rounds[0][i].court=m.court; });
-
-  const data = { teams, rounds, startTime, courtCount };
-  await setDoc(docRef, data);
-};
-
-/* ----------------- Schedule Function ----------------- */
-function scheduleMatches(matches, startTime, courts){
-  const result = [];
-  const start = new Date(`1970-01-01T${startTime}:00`);
-  let current = new Date(start);
-  let matchLen = 30; // each match 30 mins
-
-  for(let i=0; i<matches.length; i++){
-    const court = (i % courts) + 1;
-    if(i>0 && i % courts === 0){
-      current = new Date(current.getTime() + matchLen*60000);
-    }
-    const timeStr = current.toTimeString().substring(0,5);
-    result.push({ court, time: timeStr });
-  }
-  return result;
-}
-
-/* ----------------- Render Bracket ----------------- */
-function renderBracket(data){
-  bracketEl.innerHTML = "";
-
-  data.rounds.forEach((round, roundIndex)=>{
-    const roundDiv = document.createElement("div");
-    roundDiv.className = "round";
-
-    const title = document.createElement("h3");
-    title.textContent = `Round ${roundIndex+1}`;
-    roundDiv.appendChild(title);
-
-    round.forEach((m, matchIndex)=>{
-      const matchDiv = document.createElement("div");
-      matchDiv.className = "match";
-
-      matchDiv.innerHTML = `
-        <strong>${m.a}</strong> vs <strong>${m.b}</strong><br>
-        🕒 ${m.time || "-"} | 🏟️ Court ${m.court || "-"}<br>
-        ${m.winner ? `🏆 Winner: <b>${m.winner}</b>` : ""}
-      `;
-
-      if(admin && !m.winner && m.a !== "BYE" && m.b !== "BYE"){
-        matchDiv.onclick = async ()=>{
-          const choice = prompt(`Enter winner:\nA) ${m.a}\nB) ${m.b}`);
-          if(!choice) return;
-          const winner = (choice.toUpperCase()==="A")?m.a:(choice.toUpperCase()==="B")?m.b:null;
-          if(!winner) return alert("Invalid choice");
-          await updateWinner(roundIndex, matchIndex, winner);
-        };
-      }
-      roundDiv.appendChild(matchDiv);
+    matches.push({
+      a:teamA,
+      b:teamB,
+      time:timeStr,
+      court:court,
+      winner:null
     });
 
-    bracketEl.appendChild(roundDiv);
+    court++;
+    if(court>courtCount){
+      court=1;
+      currentTime.setMinutes(currentTime.getMinutes()+30); // next round after 30 mins
+    }
+  }
+
+  await setDoc(docRef,{teams:lines,matches});
+  alert("Fixtures generated successfully!");
+}
+
+/* ---------- Set Winner ---------- */
+async function setWinner(idx){
+  if(!admin) return alert("Admin only");
+  const snap=await getDoc(docRef);
+  const data=snap.data();
+  const m=data.matches[idx];
+  const w=prompt(`Enter winner:\nA: ${m.a}\nB: ${m.b}`);
+  if(!w) return;
+  const winner = (w.toUpperCase()==='A')?m.a:(w.toUpperCase()==='B')?m.b:null;
+  if(!winner) return alert("Invalid choice");
+  data.matches[idx].winner=winner;
+  await setDoc(docRef,data);
+}
+
+/* ---------- Render Fixtures ---------- */
+function renderBracket(data){
+  bracketEl.innerHTML="";
+  data.matches.forEach((m,i)=>{
+    const div=document.createElement("div");
+    div.className="match";
+    div.innerHTML=`
+      <strong>${m.a}</strong> vs <strong>${m.b}</strong><br>
+      🕓 ${m.time} | 🏟️ Court ${m.court}
+      <span>${m.winner? '🏆 '+m.winner : ''}</span>
+    `;
+    if(admin){
+      div.onclick=()=>setWinner(i);
+    }
+    bracketEl.appendChild(div);
   });
 }
 
-/* ----------------- Update Winner ----------------- */
-async function updateWinner(roundIndex, matchIndex, winner){
-  const snap = await getDoc(docRef);
-  const data = snap.data();
-  data.rounds[roundIndex][matchIndex].winner = winner;
+/* ---------- Admin Login ---------- */
+window.login=()=>{
+  const pass=pwEl.value.trim();
+  if(pass==="admin123"){
+    admin=true;
+    adminBox.style.display='block';
+    alert("Admin logged in!");
+  } else {
+    alert("Wrong password!");
+  }
+};
 
-  // move to next round
-  const next = roundIndex + 1;
-  if(!data.rounds[next]) data.rounds[next] = [];
-
-  const target = Math.floor(matchIndex / 2);
-  if(!data.rounds[next][target]) data.rounds[next][target] = { a:null, b:null, winner:null, time:null, court:null };
-
-  if(matchIndex % 2 === 0) data.rounds[next][target].a = winner;
-  else data.rounds[next][target].b = winner;
-
-  await setDoc(docRef, data);
-}
+window.generate=generate;
 </script>
-
-<style>
-body{font-family:Segoe UI, sans-serif;background:#f6f9ff;margin:20px;}
-h2{text-align:center;margin-bottom:15px;}
-h3{color:#004aad;margin-top:10px;}
-.round{background:#fff;border-radius:10px;padding:12px;box-shadow:0 2px 5px #ccc;margin-bottom:15px;}
-.match{background:#eef4ff;padding:8px;margin:6px 0;border-radius:6px;cursor:pointer;transition:.3s;}
-.match:hover{background:#ddecff;}
-textarea,input,select{border-radius:6px;padding:8px;width:100%;margin:5px 0;}
-button{background:#004aad;color:#fff;border:none;padding:8px 12px;border-radius:6px;margin:4px;cursor:pointer;}
-button:hover{background:#0066ff;}
-#adminBox{display:none;background:#fff;padding:15px;margin-top:20px;border-radius:10px;box-shadow:0 2px 5px #bbb;}
-</style>
-</head>
-
-<body>
-<h2>🏸 Inter-Hostel Badminton Fixtures (Live)</h2>
-<div id="bracket">Loading…</div>
-<hr>
-<div id="adminLogin">
-  <input id="pw" type="password" placeholder="Admin password">
-  <button onclick="login()">Login</button>
-</div>
-
-<div id="adminBox">
-  <h3>Admin Panel</h3>
-  <label>Start Time:</label>
-  <input id="startTime" type="time"><br>
-  <label>No. of Courts:</label>
-  <input id="courtCount" type="number" min="1" max="10" value="2"><br>
-  <textarea id="teams" placeholder="Enter team names (one per line)"></textarea><br>
-  <button onclick="generate()">Generate Fixtures</button>
-</div>
 </body>
 </html>
