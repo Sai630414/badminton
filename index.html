@@ -1,369 +1,120 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Inter‑Hostel Badminton Fixtures</title>
-  <style>
-    :root{--accent:#0b74de;--muted:#666}
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;line-height:1.45;margin:0;background:#f7f9fc;color:#111}
-    header{background:linear-gradient(90deg,#fff 0,#eef6ff);padding:18px 20px;box-shadow:0 1px 0 rgba(0,0,0,.04);display:flex;align-items:center;justify-content:space-between}
-    h1{font-size:18px;margin:0}
-    .wrap{max-width:1100px;margin:18px auto;padding:0 16px}
-    .grid{display:grid;grid-template-columns:1fr 360px;gap:18px}
-    .card{background:#fff;padding:14px;border-radius:12px;box-shadow:0 6px 18px rgba(20,40,80,.06)}
-    textarea{width:100%;min-height:120px;padding:10px;border-radius:8px;border:1px solid #e6eef8;font-family:inherit}
-    label{display:block;margin:8px 0 6px;font-weight:600;color:var(--muted)}
-    input,select{width:100%;padding:8px;border-radius:8px;border:1px solid #e6eef8}
-    button{background:var(--accent);color:#fff;border:0;padding:10px 12px;border-radius:9px;cursor:pointer}
-    button.ghost{background:transparent;color:var(--accent);border:1px solid rgba(11,116,222,.12)}
-    .admin-note{font-size:13px;color:#444;margin-top:6px}
-    .public-view .match{padding:8px;border-radius:8px;border:1px solid #eef6ff;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
-    .match .teams{flex:1}
-    .muted{color:var(--muted);font-size:13px}
-    .round-title{font-weight:700;margin:6px 0}
-    .match.won{background:linear-gradient(90deg,#f0fff4,#f7fff9)}
-    .small{font-size:13px}
-    .admin-panel{display:flex;flex-direction:column;gap:10px}
-    .controls-row{display:flex;gap:8px}
-    .controls-row > *{flex:1}
-    .match-actions{display:flex;gap:6px}
-    .export-area{white-space:pre-wrap;max-height:220px;overflow:auto;background:#fbfbff;padding:8px;border-radius:6px;border:1px dashed #e8eefc;font-size:13px}
-    footer{max-width:1100px;margin:18px auto;padding:10px 16px;color:var(--muted);font-size:13px}
-    @media(max-width:980px){.grid{grid-template-columns:1fr} .card{padding:12px}}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Inter-Hostel Badminton Fixtures (Live)</title>
+<script type="module">
+/* ----------  Firebase imports  ---------- */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+import {
+  getFirestore, doc, getDoc, setDoc, onSnapshot
+} from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+/* ----------  Replace this with YOUR CONFIG  ---------- */
+const firebaseConfig = {
+
+    apiKey: "AIzaSyAYEBi37iNUdsTzoAmuh47phNJkjD0245w",
+
+    authDomain: "badminton-fixtures-5610f.firebaseapp.com",
+
+    projectId: "badminton-fixtures-5610f",
+
+    storageBucket: "badminton-fixtures-5610f.firebasestorage.app",
+
+    messagingSenderId: "296007773773",
+
+    appId: "1:296007773773:web:f59d1804da15464f587604",
+
+    measurementId: "G-7T6Q002VRS"
+
+  };
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+
+/* ----------  Page elements  ---------- */
+const bracketEl = document.getElementById("bracket");
+const teamsEl   = document.getElementById("teams");
+const pwEl      = document.getElementById("pw");
+const adminBox  = document.getElementById("adminBox");
+
+let admin=false;
+const docRef = doc(db,"fixtures","main");
+
+/* ----------  Listen live from Firestore  ---------- */
+onSnapshot(docRef,(snap)=>{
+  if(!snap.exists()){ bracketEl.innerHTML="<p>No fixture yet</p>"; return; }
+  const data=snap.data();
+  renderBracket(data);
+});
+
+/* ----------  Generate bracket  ---------- */
+async function generate(){
+  if(!admin) return alert("Admin only");
+  const lines=teamsEl.value.trim().split("\\n").filter(x=>x);
+  if(lines.length<2) return alert("Need 2+ teams");
+  const matches=[];
+  for(let i=0;i<lines.length;i+=2){
+    matches.push({a:lines[i],b:lines[i+1]||'BYE',winner:null});
+  }
+  await setDoc(docRef,{teams:lines,matches});
+}
+
+/* ----------  Set winner  ---------- */
+async function setWinner(idx,w){
+  if(!admin) return;
+  const snap=await getDoc(docRef);
+  const data=snap.data();
+  data.matches[idx].winner=w;
+  await setDoc(docRef,data);
+}
+
+/* ----------  Render function  ---------- */
+function renderBracket(data){
+  bracketEl.innerHTML="";
+  data.matches.forEach((m,i)=>{
+    const div=document.createElement("div");
+    div.className="match";
+    div.innerHTML=`<strong>${m.a}</strong> vs <strong>${m.b}</strong> 
+      <span>${m.winner? '🏆 '+m.winner : ''}</span>`;
+    if(admin){
+      div.onclick=()=>setWinner(i,prompt(`Winner? A or B\\nA:${m.a}\\nB:${m.b}`)==='A'?m.a:m.b);
+    }
+    bracketEl.appendChild(div);
+  });
+}
+
+/* ----------  Admin login ---------- */
+window.login=()=>{
+  const pass=pwEl.value.trim();
+  if(pass==="admin123"){ admin=true; adminBox.style.display='block'; alert("Logged in"); }
+  else alert("Wrong password");
+};
+window.generate=generate;
+</script>
+
+<style>
+body{font-family:sans-serif;background:#f7f9fc;margin:20px;}
+.match{background:#fff;padding:10px;margin:6px 0;border-radius:6px;box-shadow:0 1px 3px #ccc;cursor:pointer;}
+textarea{width:100%;min-height:120px;}
+button{padding:8px 12px;margin:4px;}
+</style>
 </head>
+
 <body>
-  <header>
-    <h1>Inter‑Hostel Badminton Fixtures</h1>
-    <div>
-      <button id="loginBtn">Admin Login</button>
-    </div>
-  </header>
+<h2>🏸 Inter-Hostel Badminton Fixtures (Live)</h2>
+<div id="bracket">Loading…</div>
 
-  <main class="wrap">
-    <div class="grid">
-      <section class="card public-view" id="publicView">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div>
-            <div class="muted">Public fixture board</div>
-            <div class="small">Matches and time slots visible to everyone.</div>
-          </div>
-          <div class="muted" id="statusInfo">No bracket generated yet</div>
-        </div>
+<hr>
+<div id="adminLogin">
+  <input id="pw" type="password" placeholder="Admin password">
+  <button onclick="login()">Login</button>
+</div>
 
-        <div id="bracketContainer">
-          <!-- bracket will be rendered here -->
-        </div>
-      </section>
-
-      <aside class="card">
-        <div class="admin-panel" id="adminPanel" style="display:none">
-          <div><strong>Admin Controls</strong></div>
-
-          <label>Paste team names (one per line)</label>
-          <textarea id="teamsInput" placeholder="Hostel A Team 1\nHostel B Team 2\n..."></textarea>
-
-          <div class="controls-row">
-            <input type="datetime-local" id="startAt" />
-            <input type="number" id="matchMinutes" placeholder="Match length (min)" value="25" min="5" />
-          </div>
-
-          <div class="controls-row">
-            <input type="number" id="numCourts" placeholder="Courts" value="4" min="1" />
-            <select id="timeZoneSelect">
-              <option value="local">Local time</option>
-            </select>
-          </div>
-
-          <div style="display:flex;gap:8px">
-            <button id="generateBtn">Generate Bracket & Schedule</button>
-            <button class="ghost" id="clearBtn">Clear</button>
-          </div>
-
-          <div style="display:flex;gap:8px;margin-top:6px">
-            <button id="saveBtn" class="ghost">Save to local</button>
-            <button id="exportBtn" class="ghost">Export JSON</button>
-          </div>
-
-          <div style="margin-top:10px">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <div class="muted">Manual updates</div>
-              <div class="small muted">Click a match in public view to set winner (admin only)</div>
-            </div>
-            <div class="export-area" id="exportArea">Use Export JSON to backup or share.
-            </div>
-          </div>
-
-          <div style="margin-top:10px">
-            <button id="logoutBtn" class="ghost">Logout</button>
-          </div>
-
-        </div>
-
-        <div id="loginNotice">
-          <div style="font-weight:700">Admin required to edit</div>
-          <div class="muted" style="margin-top:6px">Only the admin interface can change winners, generate fixtures, or update schedule.</div>
-          <div style="margin-top:10px">
-            <button id="showLoginBtn">Login as Admin</button>
-          </div>
-        </div>
-
-      </aside>
-    </div>
-  </main>
-
-  <footer>
-    Tip: This is a single‑file demo. For real security & multi‑admin usage run a server with authentication (we can help). Local save uses browser storage.
-  </footer>
-
-  <script>
-    /***** Simple admin system (client-side) *****/
-    // NOTE: client-side protection is not secure. For production, add server auth.
-
-    const ADMIN_KEY = 'badminton_admin_token_v1';
-    const DATA_KEY = 'badminton_bracket_v1';
-    const DEFAULT_ADMIN_PW = 'admin123'; // change this before event or use server-side auth.
-
-    const loginBtn = document.getElementById('loginBtn');
-    const showLoginBtn = document.getElementById('showLoginBtn');
-    const adminPanel = document.getElementById('adminPanel');
-    const loginNotice = document.getElementById('loginNotice');
-    const logoutBtn = document.getElementById('logoutBtn');
-
-    function isAdmin() { return !!localStorage.getItem(ADMIN_KEY); }
-    function setAdminToken() { localStorage.setItem(ADMIN_KEY, '1'); }
-    function clearAdminToken() { localStorage.removeItem(ADMIN_KEY); }
-
-    function promptLogin() {
-      const pw = prompt('Enter admin password:');
-      if(pw === null) return; // cancelled
-      if(pw === DEFAULT_ADMIN_PW) { setAdminToken(); showAdminUI(); alert('Logged in as admin'); }
-      else alert('Wrong password');
-    }
-
-    function showAdminUI(){
-      adminPanel.style.display='flex'; loginNotice.style.display='none'; loginBtn.textContent='Admin';
-    }
-    function hideAdminUI(){
-      adminPanel.style.display='none'; loginNotice.style.display='block'; loginBtn.textContent='Admin Login';
-    }
-
-    loginBtn.addEventListener('click', ()=>{ if(isAdmin()) alert('Already logged in as admin'); else promptLogin(); });
-    showLoginBtn.addEventListener('click', promptLogin);
-    logoutBtn.addEventListener('click', ()=>{ if(confirm('Logout admin?')){ clearAdminToken(); hideAdminUI(); alert('Logged out'); }});
-
-    if(isAdmin()) showAdminUI(); else hideAdminUI();
-
-    /***** Bracket & scheduling logic *****/
-    // Data model
-    // {teams:[], matches:[{id,round,slot,playerA,playerB,winner,startsAt, court}], settings:{startAt,matchMinutes,numCourts}}
-    function saveData(data){ localStorage.setItem(DATA_KEY, JSON.stringify(data)); render(); }
-    function loadData(){ const raw = localStorage.getItem(DATA_KEY); return raw? JSON.parse(raw): null; }
-
-    function clearAll(){ if(!confirm('Clear bracket and saved data?')) return; localStorage.removeItem(DATA_KEY); render(); }
-
-    function generateBracketFromTeams(teams){
-      // remove empty lines & trim
-      teams = teams.map(t=>t.trim()).filter(t=>t);
-      if(teams.length < 2) { alert('Need at least 2 teams'); return null; }
-
-      // next power of two
-      const nextPow2 = 1<<Math.ceil(Math.log2(teams.length));
-      const byes = nextPow2 - teams.length;
-
-      // randomly shuffle teams slightly to avoid bias
-      teams = teams.slice();
-      // simple shuffle
-      for(let i=teams.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[teams[i],teams[j]]=[teams[j],teams[i]]}
-
-      // create first round matches, inserting BYEs as needed (represented by null)
-      const matches = [];
-      let matchId = 1;
-      for(let i=0;i<nextPow2;i+=2){
-        const a = teams[i] || null;
-        const b = teams[i+1] || null;
-        matches.push({id:matchId++, round:1, playerA:a, playerB:b, winner:null, slot:null, startsAt:null, court:null, nextMatchId:null});
-      }
-
-      // For subsequent rounds, create placeholder matches and link nextMatchId
-      let round = 2;
-      let prevRoundCount = matches.length;
-      let allMatches = matches.slice();
-      while(prevRoundCount > 1){
-        const roundMatches = [];
-        for(let i=0;i<prevRoundCount;i+=2){
-          const m = {id:matchId++, round:round, playerA:null, playerB:null, winner:null, slot:null, startsAt:null, court:null, nextMatchId:null};
-          roundMatches.push(m);
-        }
-        // link previous round matches to next ones
-        for(let i=0;i<prevRoundCount;i++){
-          const next = roundMatches[Math.floor(i/2)];
-          allMatches[i].nextMatchId = next.id;
-        }
-        allMatches = allMatches.concat(roundMatches);
-        prevRoundCount = roundMatches.length;
-        round++;
-      }
-
-      return {teams, matches: allMatches, settings:{startAt:null, matchMinutes:25, numCourts:4}};
-    }
-
-    function scheduleMatches(data){
-      if(!data || !data.matches) return;
-      const settings = data.settings || {};
-      if(!settings.startAt) return;
-      const matchMinutes = parseInt(settings.matchMinutes) || 25;
-      const courts = parseInt(settings.numCourts) || 1;
-
-      // sort matches by round asc, then by id
-      const matches = data.matches.slice().sort((a,b)=> (a.round - b.round) || (a.id - b.id));
-
-      // We'll schedule sequentially across courts independent of rounds (simple) so spectators can see times.
-      // Start at provided startAt, fill courts in parallel.
-      let current = new Date(settings.startAt).getTime();
-      // maintain next available time per court
-      const courtNext = Array.from({length:courts},()=>current);
-
-      for(const m of matches){
-        // assign earliest available court
-        let minIdx = 0; let minTime = courtNext[0];
-        for(let i=1;i<courts;i++){ if(courtNext[i] < minTime){ minTime = courtNext[i]; minIdx = i; }}
-        const start = new Date(minTime);
-        m.startsAt = start.toISOString();
-        m.court = minIdx+1;
-        // increment that court
-        courtNext[minIdx] = minIdx>=0 ? (minTime + matchMinutes*60*1000) : (minTime + matchMinutes*60*1000);
-      }
-
-      data.matches = matches; // keep sorted
-      return data;
-    }
-
-    function findMatchById(data,id){ return data.matches.find(m=>m.id===id); }
-
-    /***** Rendering public view (read-only for non-admin) *****/
-    const bracketContainer = document.getElementById('bracketContainer');
-    const statusInfo = document.getElementById('statusInfo');
-
-    function render(){
-      const data = loadData();
-      bracketContainer.innerHTML='';
-      if(!data){ statusInfo.textContent='No bracket generated'; return; }
-      statusInfo.textContent = `${data.teams.length} teams · ${data.matches.length} matches`;
-
-      // Group matches by round
-      const rounds = {};
-      data.matches.forEach(m=>{ if(!rounds[m.round]) rounds[m.round]=[]; rounds[m.round].push(m); });
-
-      Object.keys(rounds).sort((a,b)=>a-b).forEach(roundNum=>{
-        const wrap = document.createElement('div');
-        wrap.innerHTML = `<div class="round-title">Round ${roundNum}</div>`;
-        rounds[roundNum].forEach(m=>{
-          const div = document.createElement('div');
-          div.className = 'match' + (m.winner? ' won':'');
-          const a = m.playerA || '—';
-          const b = m.playerB || '—';
-          const time = m.startsAt? (new Date(m.startsAt)).toLocaleString(): 'TBD';
-          div.innerHTML = `<div class="teams"><strong>${a}</strong> <span class="muted">vs</span> <strong>${b}</strong><div class="muted small">Match #${m.id} · ${time} · Court ${m.court || '-'}</div></div>`;
-
-          // clicking allowed for admin only to set winner
-          div.style.cursor = isAdmin() ? 'pointer' : 'default';
-          div.addEventListener('click', ()=>{
-            if(!isAdmin()){ alert('Admin only: login to update winners'); return; }
-            const choice = prompt(`Set winner for Match #${m.id}\nEnter A or B (or exact team name).\nA: ${a}\nB: ${b}`);
-            if(!choice) return;
-            let winner = null;
-            if(choice.toUpperCase()==='A') winner = a; else if(choice.toUpperCase()==='B') winner = b;
-            else if(choice.trim()) winner = choice.trim();
-            if(winner){
-              const d = loadData();
-              const match = findMatchById(d,m.id);
-              match.winner = winner;
-              // push winner into nextMatch slot if exists
-              if(match.nextMatchId){
-                const next = findMatchById(d, match.nextMatchId);
-                if(next){
-                  // decide if it fits playerA or playerB (choose first empty)
-                  if(!next.playerA) next.playerA = winner;
-                  else if(!next.playerB) next.playerB = winner;
-                }
-              }
-              saveData(d);
-            }
-          });
-
-          wrap.appendChild(div);
-        });
-        bracketContainer.appendChild(wrap);
-      });
-
-      // populate export area
-      const exp = document.getElementById('exportArea');
-      exp.textContent = JSON.stringify(data, null, 2);
-    }
-
-    /***** Hook up admin controls *****/
-    const teamsInput = document.getElementById('teamsInput');
-    const generateBtn = document.getElementById('generateBtn');
-    const clearBtn = document.getElementById('clearBtn');
-    const saveBtn = document.getElementById('saveBtn');
-    const exportBtn = document.getElementById('exportBtn');
-    const startAt = document.getElementById('startAt');
-    const matchMinutes = document.getElementById('matchMinutes');
-    const numCourts = document.getElementById('numCourts');
-
-    generateBtn.addEventListener('click', ()=>{
-      if(!isAdmin()){ alert('Admin only'); return; }
-      const raw = teamsInput.value.trim();
-      const teams = raw.split('\n').map(s=>s.trim()).filter(s=>s);
-      if(teams.length < 2) { alert('Enter at least 2 teams (one per line)'); return; }
-      const d = generateBracketFromTeams(teams);
-      // store settings
-      d.settings.startAt = startAt.value || null;
-      d.settings.matchMinutes = parseInt(matchMinutes.value) || 25;
-      d.settings.numCourts = parseInt(numCourts.value) || 4;
-      scheduleMatches(d);
-      saveData(d);
-      alert('Bracket generated — visible to all. You can click matches to set winners.');
-    });
-
-    clearBtn.addEventListener('click', ()=>{ if(!isAdmin()){ alert('Admin only'); return; } clearAll(); });
-
-    saveBtn.addEventListener('click', ()=>{
-      if(!isAdmin()){ alert('Admin only'); return; }
-      const data = loadData(); if(!data){ alert('No data to save'); return; }
-      // already saved locally; still show confirmation
-      alert('Saved in browser local storage. Use Export JSON to backup.');
-    });
-
-    exportBtn.addEventListener('click', ()=>{
-      const data = loadData(); if(!data){ alert('No data to export'); return; }
-      const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href=url; a.download='fixtures.json'; a.click(); URL.revokeObjectURL(url);
-    });
-
-    // on load, populate fields from saved data
-    window.addEventListener('load', ()=>{
-      const d = loadData();
-      if(d){
-        teamsInput.value = d.teams.join('\n');
-        if(d.settings){ startAt.value = d.settings.startAt? d.settings.startAt.slice(0,16): ''; matchMinutes.value = d.settings.matchMinutes || 25; numCourts.value = d.settings.numCourts || 4; }
-        render();
-      }
-    });
-
-    // allow import by pasting JSON into export area (admin only)
-    const exportArea = document.getElementById('exportArea');
-    exportArea.addEventListener('dblclick', ()=>{
-      if(!isAdmin()){ alert('Admin only'); return; }
-      const txt = prompt('Paste fixture JSON to import (this will overwrite current bracket):', exportArea.textContent);
-      if(!txt) return;
-      try{ const obj = JSON.parse(txt); localStorage.setItem(DATA_KEY, JSON.stringify(obj)); render(); alert('Imported.'); }
-      catch(e){ alert('Invalid JSON'); }
-    });
-
-  </script>
+<div id="adminBox" style="display:none">
+  <h3>Admin Panel</h3>
+  <textarea id="teams" placeholder="Enter team names (one per line)"></textarea><br>
+  <button onclick="generate()">Generate Fixtures</button>
+</div>
 </body>
 </html>
